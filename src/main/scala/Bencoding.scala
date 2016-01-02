@@ -1,5 +1,9 @@
 import scala.util.parsing.combinator._
 
+trait Bencodable {
+  def bencode() : BencodedExpr
+}
+
 abstract class BencodedExpr
 case class BeString(s: String) extends BencodedExpr
 case class BeInt(i: Int) extends BencodedExpr
@@ -10,7 +14,8 @@ object BencodingParser extends JavaTokenParsers {
   def beExpr : Parser[BencodedExpr] = beInt | beString | beList | beDict
   def beInt = { "i" ~> wholeNumber <~ "e" } ^^ { (x) => BeInt(x.toInt) }
   def beString = { wholeNumber <~ ":" ^^ (_.toInt) } >>
-    { repN(_, """.""".r) } ^^ { (cl) => BeString(cl.reduce(_+_)) }
+    { repN(_, """.""".r) } ^^
+    { (cl) => BeString(cl.reduce(_+_)) }
   def beList = { "l" ~> beExpr.* <~ "e"} ^^ { BeList(_) }
   def beDict = { "d" ~> (beString ~ beExpr).* <~ "e"} ^^ { (kvPairs) =>
     BeDict(kvPairs.map({ case BeString(s) ~ b => (s,b) }).toMap)
