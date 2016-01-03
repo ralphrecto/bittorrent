@@ -1,7 +1,7 @@
 import scala.util.parsing.combinator._
 
 trait Bencodable {
-  def bencode() : BencodedExpr
+  def beEncode() : BencodedExpr
 }
 
 abstract class BencodedExpr
