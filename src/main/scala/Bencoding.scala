@@ -44,17 +44,17 @@ object Bencoding {
 
   def unwrapInt(e: BencodedExpr) : Option[Int] = e match {
     case BeInt(i) => Some(i)
-      _ => None
+    case _ => None
   }
 
   def unwrapString(e: BencodedExpr) : Option[String] = e match {
     case BeString(s) => Some(s)
-      _ => None
+    case _ => None
   }
 
   def unwrapList(e: BencodedExpr) : Option[List[BencodedExpr]] = e match {
     case BeList(l) => Some(l)
-      _ => None
+    case _ => None
   }
 
   def main(args: Array[String]): Unit = {
