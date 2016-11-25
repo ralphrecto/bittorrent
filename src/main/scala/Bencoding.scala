@@ -46,7 +46,7 @@ object Bencoding {
   def encodeObj(o: Any) : BencodedExpr = o match {
     case s:String => BeString(s)
     case i:Int => BeInt(i)
-    case l:List => BeList(l map encodeObj)
+    case l:List[Any] => BeList(l map encodeObj)
     case m:Map[String, Any] => BeDict(m mapValues encodeObj)
     case opt:Option[Any] => BeOpt(opt map encodeObj)
     case _ => BeOpt(None)
@@ -65,10 +65,6 @@ object Bencoding {
   def decodeList(e: BencodedExpr) : Option[List[BencodedExpr]] = e match {
     case BeList(l) => Some(l)
     case _ => None
-  }
-
-  def main(args: Array[String]): Unit = {
-    val s = "d2:hili10ei100e5:helloee"
   }
 
 }

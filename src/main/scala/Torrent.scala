@@ -6,8 +6,8 @@ import Bencoding.encodeObj
 
 object MultiFileEntryInfo {
   def beDecode(be: BencodedExpr) : Option[MultiFileEntryInfo] = {
+    val BeDict(d) = be
     for {
-      BeDict(d) <- be
       length <- d get "length"
       lengthU <- Bencoding.decodeInt(length)
       md5Sum <- d get "md5Sum"
@@ -99,14 +99,14 @@ class MultiFileMoreInfo(
 
 object InfoDict {
   def beDecode(be: BencodedExpr): Option[InfoDict] = {
+    val BeDict(d) = be
     for {
-      BeDict(d) <- be
       pieceLength <- d get "piece-length"
       pieceLengthU <- Bencoding.decodeInt(pieceLength)
       pieces <- d get "pieces"
       piecesU <- Bencoding.decodeString(pieces)
-      singleFile <- d contains "length"
-      moreInfo <- if (singleFile) {
+      // length is a required field for single file infos
+      moreInfo <- if (d contains "length") {
         SingleFileMoreInfo.beDecode(d)
       } else {
         MultiFileMoreInfo.beDecode(d)
@@ -116,7 +116,7 @@ object InfoDict {
         pieceLengthU,
         ByteString.fromString(piecesU),
         d get "privateField" flatMap Bencoding.decodeInt,
-        singleFile,
+        d contains "length",
         moreInfo
       )
     }
@@ -144,8 +144,8 @@ class InfoDict(
 
 object Torrent {
   def beDecode(be: BencodedExpr): Option[Torrent] = {
+    val BeDict(d) = be
     for {
-      BeDict(d) <- be
       info <- d get "info"
       infod <- InfoDict.beDecode(info)
       announce <- d get "announce"
