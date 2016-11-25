@@ -2,26 +2,18 @@
  * for documentation of these types. */
 
 import akka.util.ByteString
-
-def beEnHelper(name: String, emain: Option[Any]): Option[(String, BencodedExpr)] = {
-  def help(e: Any): BencodedExpr = e match {
-    case i: Int => BeInt(i)
-    case s: String => BeString(s)
-    case l: List => BeList(l map help)
-  }
-  emain map (name -> help(_))
-}
+import Bencoding.encodeObj
 
 object MultiFileEntryInfo {
   def beDecode(be: BencodedExpr) : Option[MultiFileEntryInfo] = {
     for {
       BeDict(d) <- be
       length <- d get "length"
-      lengthU <- Bencoding.unwrapInt(length)
+      lengthU <- Bencoding.decodeInt(length)
       md5Sum <- d get "md5Sum"
-      md5SumU <- Bencoding.unwrapString(md5Sum)
+      md5SumU <- Bencoding.decodeString(md5Sum)
       path <- d get "path"
-      pathU <- Bencoding.unwrapString(path)
+      pathU <- Bencoding.decodeString(path)
     } yield new MultiFileEntryInfo(lengthU, md5SumU, pathU)
   }
 }
@@ -47,14 +39,14 @@ object SingleFileMoreInfo {
   def beDecode(d: Map[String,BencodedExpr]) : Option[SingleFileMoreInfo] = {
     for {
       name <- d get "name"
-      nameU <- Bencoding.unwrapString(name)
+      nameU <- Bencoding.decodeString(name)
       length <- d get "length"
-      lengthU <- Bencoding.unwrapInt(length)
+      lengthU <- Bencoding.decodeInt(length)
     } yield {
       new SingleFileMoreInfo(
         nameU,
         lengthU,
-        d get "md5Sum" flatMap Bencoding.unwrapString
+        d get "md5Sum" flatMap Bencoding.decodeString
       )
     }
   }
@@ -68,9 +60,9 @@ case class SingleFileMoreInfo(
   def beEncode() : BencodedExpr = {
     BeDict(
       Map[String, BencodedExpr]() +
-      ("name" -> BeString(name)) +
-      ("length" -> BeInt(length)) ++
-      beEnHelper("md5Sum", md5Sum)
+      ("name" -> encodeObj(name)) +
+      ("length" -> encodeObj(length)) +
+      ("md5Sum" -> encodeObj(md5Sum))
     )
   }
 }
@@ -79,13 +71,13 @@ object MultiFileMoreInfo {
   def beDecode(d: Map[String, BencodedExpr]) : Option[MultiFileMoreInfo] = {
     for {
       name <- d get "name"
-      nameU <- Bencoding.unwrapString(name)
+      nameU <- Bencoding.decodeString(name)
       files <- d get "files"
-      filesU <- Bencoding.unwrapList(files)
+      filesU <- Bencoding.decodeList(files)
       filesU2 <- {
-        val unwrapped = filesU map MultiFileEntryInfo.beDecode
-        if (unwrapped forall (_.isDefined)) {
-          Some(unwrapped map (_.get))
+        val decoded = filesU map MultiFileEntryInfo.beDecode
+        if (decoded forall (_.isDefined)) {
+          Some(decoded map (_.get))
         } else None
       }
     } yield new MultiFileMoreInfo(nameU, filesU2)
@@ -110,9 +102,9 @@ object InfoDict {
     for {
       BeDict(d) <- be
       pieceLength <- d get "piece-length"
-      pieceLengthU <- Bencoding.unwrapInt(pieceLength)
+      pieceLengthU <- Bencoding.decodeInt(pieceLength)
       pieces <- d get "pieces"
-      piecesU <- Bencoding.unwrapString(pieces)
+      piecesU <- Bencoding.decodeString(pieces)
       singleFile <- d contains "length"
       moreInfo <- if (singleFile) {
         SingleFileMoreInfo.beDecode(d)
@@ -123,7 +115,7 @@ object InfoDict {
       new InfoDict(
         pieceLengthU,
         ByteString.fromString(piecesU),
-        d get "privateField" flatMap Bencoding.unwrapInt,
+        d get "privateField" flatMap Bencoding.decodeInt,
         singleFile,
         moreInfo
       )
@@ -139,12 +131,12 @@ class InfoDict(
   moreInfo: MoreInfo) extends Bencodable {
 
   def beEncode() : BencodedExpr = {
-    val infoDict = Map[String, BencodedExpr]() +
+    BeDict(
+      Map[String, BencodedExpr]() +
       ("piece-length" -> BeInt(pieceLength)) +
-      ("pieces" -> BeString(pieces.toString)) ++
-      beEnHelper("private", privateField)
-    val BeDict(moreDict) = moreInfo.beEncode
-    BeDict(infoDict ++ moreDict)
+      ("pieces" -> encodeObj(pieces.toString)) +
+      ("private" -> encodeObj(privateField))
+    )
   }
 
   def isMultifile() : Boolean = { this.multiFile }
@@ -157,7 +149,7 @@ object Torrent {
       info <- d get "info"
       infod <- InfoDict.beDecode(info)
       announce <- d get "announce"
-      announceStr <- Bencoding.unwrapString(announce)
+      announceStr <- Bencoding.decodeString(announce)
     } yield {
       new Torrent(
         infod.isMultifile(),
@@ -165,32 +157,32 @@ object Torrent {
         announceStr,
         for {
           topLevel <- d get "announceList"
-          topLevelU <- Bencoding.unwrapList(topLevel)
+          topLevelU <- Bencoding.decodeList(topLevel)
           secondLevelU <- topLevelU match {
             case Nil => Some(Nil)
             case _ => {
-              val unwrapped = topLevelU map Bencoding.unwrapList
-              if (unwrapped forall (_.isDefined)) {
-                Some(unwrapped map (_.get))
+              val decodeped = topLevelU map Bencoding.decodeList
+              if (decodeped forall (_.isDefined)) {
+                Some(decodeped map (_.get))
               } else None
             }
           }
           thirdLevelU <- {
-            val unwrapped = secondLevelU map ((l) => {
-              val unwrapped2 = l map Bencoding.unwrapString
-              if (unwrapped2 forall (_.isDefined)) {
-                Some(unwrapped2 map (_.get))
+            val decodeped = secondLevelU map ((l) => {
+              val decodeped2 = l map Bencoding.decodeString
+              if (decodeped2 forall (_.isDefined)) {
+                Some(decodeped2 map (_.get))
               } else None
             })
-            if (unwrapped forall (_.isDefined)) {
-              Some(unwrapped map (_.get))
+            if (decodeped forall (_.isDefined)) {
+              Some(decodeped map (_.get))
             } else None
           }
         } yield thirdLevelU,
-        d get "creation-date" flatMap Bencoding.unwrapInt,
-        d get "comment" flatMap Bencoding.unwrapString,
-        d get "created-by" flatMap Bencoding.unwrapString,
-        d get "encoding" flatMap Bencoding.unwrapString
+        d get "creation-date" flatMap Bencoding.decodeInt,
+        d get "comment" flatMap Bencoding.decodeString,
+        d get "created-by" flatMap Bencoding.decodeString,
+        d get "encoding" flatMap Bencoding.decodeString
       )
     }
   }
@@ -210,13 +202,12 @@ class Torrent(
     BeDict(
       Map[String, BencodedExpr]() +
       ("info" -> info.beEncode()) +
-      ("announce" -> BeString(announce)) ++ {
-        beEnHelper("announce-list", announceList) ++
-        beEnHelper("creation-date", creationDate) ++
-        beEnHelper("comment", comment) ++
-        beEnHelper("created-by", createdBy) ++
-        beEnHelper("encoding", encoding)
-      }
+      ("announce" -> encodeObj(announce)) +
+      ("announceList" -> encodeObj(announceList)) +
+      ("creationDate" -> encodeObj(creationDate)) +
+      ("comment" -> encodeObj(comment)) +
+      ("createdBy" -> encodeObj(createdBy)) +
+      ("encoding" -> encodeObj(encoding))
     )
   }
 }

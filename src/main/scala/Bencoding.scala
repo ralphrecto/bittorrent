@@ -24,43 +24,51 @@ object BencodingParser extends JavaTokenParsers {
 }
 
 object Bencoding {
-  def decode(s: String) : BencodedExpr = {
-    BencodingParser.parseAll(BencodingParser.beExpr, s).get
+  def decodeStr(s: String) : Option[BencodedExpr] = {
+    val parseResult = BencodingParser.parseAll(BencodingParser.beExpr, s)
+    if (parseResult.successful) Some(parseResult.get) else None
   }
 
-  def encode(e: BencodedExpr) : String = e match {
+  def encodeStr(e: BencodedExpr) : String = e match {
     case BeString(s) => s"${s.length}:$s"
     case BeInt(i) => s"i${i}e"
-    case BeList(l) => s"l${l.foldLeft("")((acc, e) => acc + encode(e))}e"
+    case BeList(l) => s"l${l.foldLeft("")((acc, e) => acc + encodeStr(e))}e"
     case BeDict(d) => {
-      val bencoded = d.foldLeft("")((acc, kv) => {
-        acc + encode(BeString(kv._1)) + encode(kv._2)
+      val bencodeStrd = d.foldLeft("")((acc, kv) => {
+        acc + encodeStr(BeString(kv._1)) + encodeStr(kv._2)
       })
-      s"d${bencoded}e"
+      s"d${bencodeStrd}e"
     }
-    case BeOpt(Some(e2)) => encode(e2)
+    case BeOpt(Some(e2)) => encodeStr(e2)
     case BeOpt(None) => ""
   }
 
-  def unwrapInt(e: BencodedExpr) : Option[Int] = e match {
+  def encodeObj(o: Any) : BencodedExpr = o match {
+    case s:String => BeString(s)
+    case i:Int => BeInt(i)
+    case l:List => BeList(l map encodeObj)
+    case m:Map[String, Any] => BeDict(m mapValues encodeObj)
+    case opt:Option[Any] => BeOpt(opt map encodeObj)
+    case _ => BeOpt(None)
+  }
+
+  def decodeInt(e: BencodedExpr) : Option[Int] = e match {
     case BeInt(i) => Some(i)
     case _ => None
   }
 
-  def unwrapString(e: BencodedExpr) : Option[String] = e match {
+  def decodeString(e: BencodedExpr) : Option[String] = e match {
     case BeString(s) => Some(s)
     case _ => None
   }
 
-  def unwrapList(e: BencodedExpr) : Option[List[BencodedExpr]] = e match {
+  def decodeList(e: BencodedExpr) : Option[List[BencodedExpr]] = e match {
     case BeList(l) => Some(l)
     case _ => None
   }
 
   def main(args: Array[String]): Unit = {
     val s = "d2:hili10ei100e5:helloee"
-    println(decode(s))
-    println(encode(decode(s)) equals s)
   }
 
 }
