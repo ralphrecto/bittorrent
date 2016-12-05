@@ -9,20 +9,22 @@ import akka.stream.ActorMaterializer
  */
 object Tracker extends App {
 
+  // app globals/constants
+  val DEFAULT_NUM_WANT = 50
+  val host = "localhost"
+  val port = 8080
+
   implicit val system = ActorSystem.create()
   implicit val materializer = ActorMaterializer()
   implicit val executionContext = system.dispatcher
-
-  val host = "localhost"
-  val port = 8080
 
   val route =
     path("") {
       get {
         parameters(
           'info_hash, 'peer_id, 'port.as[Int], 'uploaded.as[Int], 'downloaded.as[Int],
-          'left.as[Int], 'compact.as[Int], 'no_peer_id, 'event, 'ip?, 'numwant.as[Int] ? 50,
-          'key, 'trackerid
+          'left.as[Int], 'compact.as[Int], 'no_peer_id, 'event, 'ip?,
+          'numwant.as[Int] ? DEFAULT_NUM_WANT, 'key, 'trackerid
         ) {
           (infoHash, peerId, port, uploaded, downloaded, left, compact, noPeerId, event,
            ip, numWant, key, trackerId) => {
