@@ -117,18 +117,21 @@ object InfoDict {
         ByteString.fromString(piecesU),
         d get "privateField" flatMap Bencoding.decodeInt,
         d contains "length",
-        moreInfo
+        moreInfo,
+        be
       )
     }
   }
 }
 
 class InfoDict(
-  pieceLength: Int,
-  pieces: ByteString,
-  privateField: Option[Int],
-  multiFile: Boolean,
-  moreInfo: MoreInfo) extends Bencodable {
+  val pieceLength: Int,
+  val pieces: ByteString,
+  val privateField: Option[Int],
+  val multiFile: Boolean,
+  val moreInfo: MoreInfo,
+  // the original bencoded expr
+  val original: BencodedExpr) extends Bencodable {
 
   def beEncode() : BencodedExpr = {
     BeDict(
@@ -189,14 +192,14 @@ object Torrent {
 }
 
 class Torrent(
-  multiFile: Boolean,
-  info: InfoDict,
-  announce: String,
-  announceList: Option[List[List[String]]],
-  creationDate: Option[Int],
-  comment: Option[String],
-  createdBy: Option[String],
-  encoding: Option[String]) extends Bencodable {
+  val multiFile: Boolean,
+  val info: InfoDict,
+  val announce: String,
+  val announceList: Option[List[List[String]]],
+  val creationDate: Option[Int],
+  val comment: Option[String],
+  val createdBy: Option[String],
+  val encoding: Option[String]) extends Bencodable {
 
   def beEncode() : BencodedExpr = {
     BeDict(

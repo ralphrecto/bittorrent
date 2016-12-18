@@ -4,66 +4,108 @@ trait Bencodable {
   def beEncode() : BencodedExpr
 }
 
-abstract class BencodedExpr
-case class BeString(s: String) extends BencodedExpr
-case class BeInt(i: Int) extends BencodedExpr
-case class BeList(l: List[BencodedExpr]) extends BencodedExpr
-case class BeDict(d: Map[String, BencodedExpr]) extends BencodedExpr
-case class BeOpt(o: Option[BencodedExpr]) extends BencodedExpr
+/**
+ * Abstract superclass for bencoded expressions
+ * @param source the raw string for the expression
+ */
+abstract class BencodedExpr(val source: String)
+case class BeString(sourceArg: String, s: String) extends BencodedExpr(sourceArg)
+case class BeInt(sourceArg: String, i: Int) extends BencodedExpr(sourceArg)
+case class BeList(sourceArg: String, l: List[BencodedExpr]) extends BencodedExpr(sourceArg)
+case class BeDict(sourceArg: String, d: Map[String, BencodedExpr]) extends BencodedExpr(sourceArg)
+case class BeOpt(sourceArg: String, o: Option[BencodedExpr]) extends BencodedExpr(sourceArg)
 
-object BencodingParser extends JavaTokenParsers {
+object BencodingParsers extends JavaTokenParsers {
+  /**
+   * Wrap a BencodingParser such that the source string is part of the result.
+   * Note: why do this? This is more general than assuming that there is a bijection
+   * between strings that are valid bencoded strings and BencodedExprs. I.e. if we were to
+   * not care about whitespace when parsing, but still want to be able to have access
+   * to the actual raw string given (e.g. for hashing). However, I'm not actually sure
+   * if this generality is needed, but just to be safe we do it this way.
+   *
+   * @param beParser source parser
+   * @return wrapped parser
+   */
+  def parserWrap(beParser: (String => Parser[BencodedExpr])) : Parser[BencodedExpr] =
+    new Parser[BencodedExpr] {
+      override def apply(in: BencodingParsers.Input): BencodingParsers.Parser[BencodedExpr] = beParser(in.source.toString)
+    }
+
   def beExpr : Parser[BencodedExpr] = beInt | beString | beList | beDict
-  def beInt = { "i" ~> wholeNumber <~ "e" } ^^ { (x) => BeInt(x.toInt) }
-  def beString = { wholeNumber <~ ":" ^^ (_.toInt) } >>
-    { repN(_, """.""".r) } ^^
-    { (cl) => BeString(cl.reduce(_+_)) }
-  def beList = { "l" ~> beExpr.* <~ "e"} ^^ BeList
-  def beDict = { "d" ~> (beString ~ beExpr).* <~ "e"} ^^ { (kvPairs) =>
-    BeDict(kvPairs.map({ case BeString(s) ~ b => (s,b) }).toMap)
+
+  def beInt: BencodingParsers.Parser[BencodedExpr] = {
+    val rawParser = (source: String) =>
+      { "i" ~> wholeNumber <~ "e" } ^^
+      { (x) => BeInt(source, x.toInt) }
+    parserWrap(rawParser)
   }
+
+  def beString = {
+    val rawParser = (source: String) =>
+      { wholeNumber <~ ":" ^^ (_.toInt) } >>
+      { repN(_, """.""".r) } ^^
+      { (cl) => BeString(source, cl.reduce(_+_)) }
+    parserWrap(rawParser)
+  }
+
+  def beList = {
+    val rawParser = (source: String) =>
+      { "l" ~> beExpr.* <~ "e"} ^^
+      { (parsedList) => BeList(source, parsedList) }
+    parserWrap(rawParser)
+  }
+
+  def beDict = {
+    val rawParser = (source: String) =>
+      { "d" ~> (beString ~ beExpr).* <~ "e"} ^^
+      { (kvPairs: List[BencodingParsers.~[BencodedExpr, BencodedExpr]]) =>
+        val dictPairs = kvPairs map { (kvPair) => kvPair match {
+            case BeString(key) ~ value => (key, value)
+          }
+        }
+        BeDict(source, dictPairs.toMap)
+      }
+    parserWrap(rawParser)
+  }
+
 }
 
 object Bencoding {
   def decodeStr(s: String) : Option[BencodedExpr] = {
-    val parseResult = BencodingParser.parseAll(BencodingParser.beExpr, s)
+    val parseResult = BencodingParsers.parseAll(BencodingParsers.beExpr, s)
     if (parseResult.successful) Some(parseResult.get) else None
   }
 
-  def encodeStr(e: BencodedExpr) : String = e match {
-    case BeString(s) => s"${s.length}:$s"
-    case BeInt(i) => s"i${i}e"
-    case BeList(l) => s"l${l.foldLeft("")((acc, e) => acc + encodeStr(e))}e"
-    case BeDict(d) => {
-      val bencodeStrd = d.foldLeft("")((acc, kv) => {
-        acc + encodeStr(BeString(kv._1)) + encodeStr(kv._2)
-      })
-      s"d${bencodeStrd}e"
-    }
-    case BeOpt(Some(e2)) => encodeStr(e2)
-    case BeOpt(None) => ""
-  }
-
   def encodeObj(o: Any) : BencodedExpr = o match {
-    case s:String => BeString(s)
-    case i:Int => BeInt(i)
-    case l:List[Any] => BeList(l map encodeObj)
-    case m:Map[String, Any] => BeDict(m mapValues encodeObj)
-    case opt:Option[Any] => BeOpt(opt map encodeObj)
-    case _ => BeOpt(None)
+    case s:String => BeString(s"${s.length}:s", s)
+    case i:Int => BeInt(s"i${i}e", i)
+    case l:List[Any] => {
+      val encodedElements = l map encodeObj
+      val elementSources = encodedElements map (_.source)
+      BeList(s"l${elementSources.reduce(_+_)}e", encodedElements)
+    }
+    case m:Map[String, Any] => {
+      val pairSources = m map { (kvPair) =>
+        encodeObj(kvPair._1).source + encodeObj(kvPair._2).source
+      }
+      BeDict(pairSources.reduce(_+_), m mapValues encodeObj)
+    }
+    case _ => throw new IllegalArgumentException("lol u wild tho")
   }
 
   def decodeInt(e: BencodedExpr) : Option[Int] = e match {
-    case BeInt(i) => Some(i)
+    case BeInt(_, i) => Some(i)
     case _ => None
   }
 
   def decodeString(e: BencodedExpr) : Option[String] = e match {
-    case BeString(s) => Some(s)
+    case BeString(_, s) => Some(s)
     case _ => None
   }
 
   def decodeList(e: BencodedExpr) : Option[List[BencodedExpr]] = e match {
-    case BeList(l) => Some(l)
+    case BeList(_, l) => Some(l)
     case _ => None
   }
 

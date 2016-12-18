@@ -8,7 +8,7 @@ class Client extends Actor {
   override def receive: Receive = ???
 
   def startTorrent(torrent : Torrent) : Unit = {
-
+    torrent.info
   }
 
   def failTorrent(filename : String) : Unit = {
