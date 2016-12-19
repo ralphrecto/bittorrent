@@ -1,76 +1,79 @@
 import scala.util.parsing.combinator._
 
-/**
- * Abstract superclass for bencoded expressions
- * @param source the raw string for the expression
- */
-abstract class BencodedExpr(val source: String)
-case class BeString(sourceArg: String, s: String) extends BencodedExpr(sourceArg)
-case class BeInt(sourceArg: String, i: Int) extends BencodedExpr(sourceArg)
-case class BeList(sourceArg: String, l: List[BencodedExpr]) extends BencodedExpr(sourceArg)
-case class BeDict(sourceArg: String, d: Map[String, BencodedExpr]) extends BencodedExpr(sourceArg)
-case class BeOpt(sourceArg: String, o: Option[BencodedExpr]) extends BencodedExpr(sourceArg)
-
-object BencodingParsers extends JavaTokenParsers {
-  /**
-   * Wrap a BencodingParser such that the source string is part of the result.
-   * Note: why do this? This is more general than assuming that there is a bijection
-   * between strings that are valid bencoded strings and BencodedExprs. I.e. if we were to
-   * not care about whitespace when parsing, but still want to be able to have access
-   * to the actual raw string given (e.g. for hashing). However, I'm not actually sure
-   * if this generality is needed, but just to be safe we do it this way.
-   *
-   * @param beParser source parser
-   * @return wrapped parser
-   */
-  def parserWrap(beParser: (String => Parser[BencodedExpr])) : Parser[BencodedExpr] =
-    new Parser[BencodedExpr] {
-      override def apply(in: BencodingParsers.Input): BencodingParsers.Parser[BencodedExpr] = beParser(in.source.toString)
-    }
-
-  def beExpr : Parser[BencodedExpr] = beInt | beString | beList | beDict
-
-  def beInt: BencodingParsers.Parser[BencodedExpr] = {
-    val rawParser = (source: String) =>
-      { "i" ~> wholeNumber <~ "e" } ^^
-      { (x) => BeInt(source, x.toInt) }
-    parserWrap(rawParser)
-  }
-
-  def beString = {
-    val rawParser = (source: String) =>
-      { wholeNumber <~ ":" ^^ (_.toInt) } >>
-      { repN(_, """.""".r) } ^^
-      { (cl) => BeString(source, cl.reduce(_+_)) }
-    parserWrap(rawParser)
-  }
-
-  def beList = {
-    val rawParser = (source: String) =>
-      { "l" ~> beExpr.* <~ "e"} ^^
-      { (parsedList) => BeList(source, parsedList) }
-    parserWrap(rawParser)
-  }
-
-  def beDict = {
-    val rawParser = (source: String) =>
-      { "d" ~> (beString ~ beExpr).* <~ "e"} ^^
-      { (kvPairs: List[BencodingParsers.~[BencodedExpr, BencodedExpr]]) =>
-        val dictPairs = kvPairs map { (kvPair) => kvPair match {
-            case BeString(key) ~ value => (key, value)
-          }
-        }
-        BeDict(source, dictPairs.toMap)
-      }
-    parserWrap(rawParser)
-  }
-
-}
-
 object Bencoding {
 
   trait Bencodable {
     def beEncode() : BencodedExpr
+  }
+
+  /**
+   * Abstract superclass for bencoded expressions
+   * @param source the raw string for the expression
+   */
+  abstract class BencodedExpr(val source: String) extends Bencodable {
+    def beEncode(): BencodedExpr = this
+  }
+
+  case class BeString(sourceArg: String, s: String) extends BencodedExpr(sourceArg)
+  case class BeInt(sourceArg: String, i: Int) extends BencodedExpr(sourceArg)
+  case class BeList(sourceArg: String, l: List[BencodedExpr]) extends BencodedExpr(sourceArg)
+  case class BeDict(sourceArg: String, d: Map[String, BencodedExpr]) extends BencodedExpr(sourceArg)
+  case class BeOpt(sourceArg: String, o: Option[BencodedExpr]) extends BencodedExpr(sourceArg)
+
+  object BencodingParsers extends JavaTokenParsers {
+    /**
+     * Wrap a BencodingParser such that the source string is part of the result.
+     * Note: why do this? This is more general than assuming that there is a bijection
+     * between strings that are valid bencoded strings and BencodedExprs. I.e. if we were to
+     * not care about whitespace when parsing, but still want to be able to have access
+     * to the actual raw string given (e.g. for hashing). However, I'm not actually sure
+     * if this generality is needed, but just to be safe we do it this way.
+     *
+     * @param beParser source parser
+     * @return wrapped parser
+     */
+    def parserWrap(beParser: (String => Parser[BencodedExpr])) : Parser[BencodedExpr] =
+      new Parser[BencodedExpr] {
+        override def apply(in: BencodingParsers.Input): BencodingParsers.Parser[BencodedExpr] = beParser(in.source.toString)
+      }
+
+    def beExpr : Parser[BencodedExpr] = beInt | beString | beList | beDict
+
+    def beInt: BencodingParsers.Parser[BencodedExpr] = {
+      val rawParser = (source: String) =>
+        { "i" ~> wholeNumber <~ "e" } ^^
+          { (x) => BeInt(source, x.toInt) }
+      parserWrap(rawParser)
+    }
+
+    def beString = {
+      val rawParser = (source: String) =>
+        { wholeNumber <~ ":" ^^ (_.toInt) } >>
+          { repN(_, """.""".r) } ^^
+          { (cl) => BeString(source, cl.reduce(_+_)) }
+      parserWrap(rawParser)
+    }
+
+    def beList = {
+      val rawParser = (source: String) =>
+        { "l" ~> beExpr.* <~ "e"} ^^
+          { (parsedList) => BeList(source, parsedList) }
+      parserWrap(rawParser)
+    }
+
+    def beDict = {
+      val rawParser = (source: String) =>
+        { "d" ~> (beString ~ beExpr).* <~ "e"} ^^
+          { (kvPairs: List[BencodingParsers.~[BencodedExpr, BencodedExpr]]) =>
+            val dictPairs = kvPairs map { (kvPair) => kvPair match {
+              case BeString(key) ~ value => (key, value)
+            }
+            }
+            BeDict(source, dictPairs.toMap)
+          }
+      parserWrap(rawParser)
+    }
+
   }
 
   implicit class BencodableInt(i: Int) extends Bencodable {
@@ -98,10 +101,6 @@ object Bencoding {
       val eltSources = encodedVals map (pair => pair._1.beEncode.source + pair._2.source)
       BeDict(s"d${eltSources reduce (_ + _)}e", encodedVals)
     }
-  }
-
-  implicit class IdempotentBencodedExpr(e: BencodedExpr) extends Bencodable {
-    override def beEncode(): BencodedExpr = e
   }
 
   def decodeStr(s: String) : Option[BencodedExpr] = {
