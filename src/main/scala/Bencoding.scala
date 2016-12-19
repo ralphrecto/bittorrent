@@ -1,9 +1,5 @@
 import scala.util.parsing.combinator._
 
-trait Bencodable {
-  def beEncode() : BencodedExpr
-}
-
 /**
  * Abstract superclass for bencoded expressions
  * @param source the raw string for the expression
@@ -72,26 +68,45 @@ object BencodingParsers extends JavaTokenParsers {
 }
 
 object Bencoding {
+
+  trait Bencodable {
+    def beEncode() : BencodedExpr
+  }
+
+  implicit class BencodableInt(i: Int) extends Bencodable {
+    override def beEncode(): BencodedExpr = BeInt(s"i${i}e", i)
+  }
+
+  implicit class BencodableString(s: String) extends Bencodable {
+    override def beEncode(): BencodedExpr = BeString(s"${s.length}:s", s)
+  }
+
+  implicit class BencodableBool(b: Boolean) extends Bencodable {
+    override def beEncode(): BencodedExpr = (if (b) 1 else 0).beEncode()
+  }
+
+  implicit class BencodableList[Elt <: Bencodable](l: List[Elt]) extends Bencodable {
+    override def beEncode(): BencodedExpr = {
+      val encodedElts = l map (_.beEncode)
+      BeList(encodedElts reduce (_.source + _.source), encodedElts)
+    }
+  }
+
+  implicit class BencodableMap[Value <: Bencodable](m: Map[String, Value]) extends Bencodable {
+    override def beEncode(): BencodedExpr = {
+      val encodedVals = m mapValues (_.beEncode)
+      val eltSources = encodedVals map (pair => pair._1.beEncode.source + pair._2.source)
+      BeDict(s"d${eltSources reduce (_ + _)}e", encodedVals)
+    }
+  }
+
+  implicit class IdempotentBencodedExpr(e: BencodedExpr) extends Bencodable {
+    override def beEncode(): BencodedExpr = e
+  }
+
   def decodeStr(s: String) : Option[BencodedExpr] = {
     val parseResult = BencodingParsers.parseAll(BencodingParsers.beExpr, s)
     if (parseResult.successful) Some(parseResult.get) else None
-  }
-
-  def encodeObj(o: Any) : BencodedExpr = o match {
-    case s:String => BeString(s"${s.length}:s", s)
-    case i:Int => BeInt(s"i${i}e", i)
-    case l:List[Any] => {
-      val encodedElements = l map encodeObj
-      val elementSources = encodedElements map (_.source)
-      BeList(s"l${elementSources.reduce(_+_)}e", encodedElements)
-    }
-    case m:Map[String, Any] => {
-      val pairSources = m map { (kvPair) =>
-        encodeObj(kvPair._1).source + encodeObj(kvPair._2).source
-      }
-      BeDict(pairSources.reduce(_+_), m mapValues encodeObj)
-    }
-    case _ => throw new IllegalArgumentException("lol u wild tho")
   }
 
   def decodeInt(e: BencodedExpr) : Option[Int] = e match {

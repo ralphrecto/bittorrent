@@ -2,11 +2,17 @@
  * for documentation of these types. */
 
 import akka.util.ByteString
-import Bencoding.encodeObj
+import _root_.Bencoding._
+import Util._
+
+def addIfPresent[T <: Bencodable](kv: (String, Option[T]))(m: Map[String, Bencodable]) = kv match {
+  case (key, Some(value)) => m + (key -> value)
+  case (_, None) => m
+}
 
 object MultiFileEntryInfo {
   def beDecode(be: BencodedExpr) : Option[MultiFileEntryInfo] = {
-    val BeDict(d) = be
+    val BeDict(_, d) = be
     for {
       length <- d get "length"
       lengthU <- Bencoding.decodeInt(length)
@@ -24,12 +30,13 @@ class MultiFileEntryInfo(
   path: String) extends Bencodable {
 
   def beEncode() : BencodedExpr = {
-    BeDict(
-      Map[String, BencodedExpr]() +
-      ("length" -> BeInt(length)) +
-      ("md5sum" -> BeString(md5Sum)) +
-      ("path" -> BeString(path))
+    val l:List[(String, Bencodable)] = List(
+      ("length" -> length),
+      ("md5Sum" -> md5Sum),
+      ("path" -> path)
     )
+
+    l.toMap.beEncode()
   }
 }
 
@@ -58,12 +65,12 @@ case class SingleFileMoreInfo(
   md5Sum: Option[String]) extends MoreInfo {
 
   def beEncode() : BencodedExpr = {
-    BeDict(
-      Map[String, BencodedExpr]() +
-      ("name" -> encodeObj(name)) +
-      ("length" -> encodeObj(length)) +
-      ("md5Sum" -> encodeObj(md5Sum))
+    val l:List[(String, Bencodable)] = List(
+      ("name" -> name),
+      ("length" -> length)
     )
+
+    addIfPresent("md5Sum" -> md5Sum)(l.toMap).beEncode()
   }
 }
 
@@ -89,17 +96,18 @@ class MultiFileMoreInfo(
   files: List[MultiFileEntryInfo]) extends MoreInfo {
 
   def beEncode() : BencodedExpr = {
-    BeDict(
-      Map[String, BencodedExpr]() +
-      ("name" -> BeString(name)) +
-      ("files" -> BeList(files map (_.beEncode())))
+    val l:List[(String, Bencodable)] = List(
+      ("name" -> name),
+      ("files" -> files)
     )
+
+    l.toMap.beEncode()
   }
 }
 
 object InfoDict {
   def beDecode(be: BencodedExpr): Option[InfoDict] = {
-    val BeDict(d) = be
+    val BeDict(_, d) = be
     for {
       pieceLength <- d get "piece-length"
       pieceLengthU <- Bencoding.decodeInt(pieceLength)
@@ -115,9 +123,9 @@ object InfoDict {
       new InfoDict(
         pieceLengthU,
         ByteString.fromString(piecesU),
-        d get "privateField" flatMap Bencoding.decodeInt,
         d contains "length",
         moreInfo,
+        d.get("privateField") flatMap Bencoding.decodeInt,
         be
       )
     }
@@ -127,27 +135,27 @@ object InfoDict {
 class InfoDict(
   val pieceLength: Int,
   val pieces: ByteString,
-  val privateField: Option[Int],
   val multiFile: Boolean,
   val moreInfo: MoreInfo,
+  val privateField: Option[Int],
   // the original bencoded expr
   val original: BencodedExpr) extends Bencodable {
 
   def beEncode() : BencodedExpr = {
-    BeDict(
-      Map[String, BencodedExpr]() +
-      ("piece-length" -> BeInt(pieceLength)) +
-      ("pieces" -> encodeObj(pieces.toString)) +
-      ("private" -> encodeObj(privateField))
+    val l:List[(String, Bencodable)] = List(
+      ("piece-length" -> pieceLength),
+      ("pieces" -> pieces.toString),
+      ("multiFile" -> multiFile),
+      ("moreInfo" -> moreInfo)
     )
-  }
 
-  def isMultifile() : Boolean = { this.multiFile }
+    addIfPresent("privateField" -> privateField)(l.toMap).beEncode()
+  }
 }
 
 object Torrent {
   def beDecode(be: BencodedExpr): Option[Torrent] = {
-    val BeDict(d) = be
+    val BeDict(_, d) = be
     for {
       info <- d get "info"
       infod <- InfoDict.beDecode(info)
@@ -155,7 +163,7 @@ object Torrent {
       announceStr <- Bencoding.decodeString(announce)
     } yield {
       new Torrent(
-        infod.isMultifile(),
+        infod.multiFile,
         infod,
         announceStr,
         for {
@@ -202,15 +210,19 @@ class Torrent(
   val encoding: Option[String]) extends Bencodable {
 
   def beEncode() : BencodedExpr = {
-    BeDict(
-      Map[String, BencodedExpr]() +
-      ("info" -> info.beEncode()) +
-      ("announce" -> encodeObj(announce)) +
-      ("announceList" -> encodeObj(announceList)) +
-      ("creationDate" -> encodeObj(creationDate)) +
-      ("comment" -> encodeObj(comment)) +
-      ("createdBy" -> encodeObj(createdBy)) +
-      ("encoding" -> encodeObj(encoding))
-    )
+    val dict: Map[String, Bencodable] =
+      Map[String, Bencodable]() +
+      ("info" -> info) +
+      ("announce" -> announce)
+
+    val finalDict: Map[String, Bencodable] =
+      dict |>
+      addIfPresent("announceList" -> announceList) |>
+      addIfPresent("creationDate" -> creationDate) |>
+      addIfPresent("comment" -> comment) |>
+      addIfPresent("createdBy" -> createdBy) |>
+      addIfPresent("encoding" -> encoding)
+
+    finalDict.beEncode()
   }
 }
