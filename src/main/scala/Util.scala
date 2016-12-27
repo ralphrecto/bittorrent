@@ -13,7 +13,7 @@ object Util {
   }
 
   // TODO: does this generate a 20 byte hash?
-  def md5Encode(str: String): String = {
+  def md5Digest(str: String): String = {
     val digest: Array[Byte] =
       MessageDigest.getInstance(MD5_JAVASEC_ALGO_NAME).digest(str.getBytes(STD_CHARSET))
     new String(digest, STD_CHARSET)

@@ -3,7 +3,7 @@ import scala.util.parsing.combinator._
 object Bencoding {
 
   trait Bencodable {
-    def beEncode() : BencodedExpr
+    def beEncode(): BencodedExpr
   }
 
   /**
@@ -15,9 +15,13 @@ object Bencoding {
   }
 
   case class BeString(sourceArg: String, s: String) extends BencodedExpr(sourceArg)
+
   case class BeInt(sourceArg: String, i: Int) extends BencodedExpr(sourceArg)
+
   case class BeList(sourceArg: String, l: List[BencodedExpr]) extends BencodedExpr(sourceArg)
+
   case class BeDict(sourceArg: String, d: Map[String, BencodedExpr]) extends BencodedExpr(sourceArg)
+
   case class BeOpt(sourceArg: String, o: Option[BencodedExpr]) extends BencodedExpr(sourceArg)
 
   object BencodingParsers extends JavaTokenParsers {
@@ -32,45 +36,46 @@ object Bencoding {
      * @param beParser source parser
      * @return wrapped parser
      */
-    def parserWrap(beParser: (String => Parser[BencodedExpr])) : Parser[BencodedExpr] =
+    def parserWrap(beParser: (String => Parser[BencodedExpr])): Parser[BencodedExpr] =
       new Parser[BencodedExpr] {
         override def apply(in: BencodingParsers.Input): BencodingParsers.Parser[BencodedExpr] = beParser(in.source.toString)
       }
 
-    def beExpr : Parser[BencodedExpr] = beInt | beString | beList | beDict
+    def beExpr: Parser[BencodedExpr] = beInt | beString | beList | beDict
 
     def beInt: BencodingParsers.Parser[BencodedExpr] = {
-      val rawParser = (source: String) =>
-        { "i" ~> wholeNumber <~ "e" } ^^
-          { (x) => BeInt(source, x.toInt) }
+      val rawParser = (source: String) => {
+        "i" ~> wholeNumber <~ "e"
+      } ^^ { (x) => BeInt(source, x.toInt) }
       parserWrap(rawParser)
     }
 
     def beString = {
-      val rawParser = (source: String) =>
-        { wholeNumber <~ ":" ^^ (_.toInt) } >>
-          { repN(_, """.""".r) } ^^
-          { (cl) => BeString(source, cl.reduce(_+_)) }
+      val rawParser = (source: String) => {
+        wholeNumber <~ ":" ^^ (_.toInt)
+      } >> {
+        repN(_, """.""".r)
+      } ^^ { (cl) => BeString(source, cl.reduce(_ + _)) }
       parserWrap(rawParser)
     }
 
     def beList = {
-      val rawParser = (source: String) =>
-        { "l" ~> beExpr.* <~ "e"} ^^
-          { (parsedList) => BeList(source, parsedList) }
+      val rawParser = (source: String) => {
+        "l" ~> beExpr.* <~ "e"
+      } ^^ { (parsedList) => BeList(source, parsedList) }
       parserWrap(rawParser)
     }
 
     def beDict = {
-      val rawParser = (source: String) =>
-        { "d" ~> (beString ~ beExpr).* <~ "e"} ^^
-          { (kvPairs: List[BencodingParsers.~[BencodedExpr, BencodedExpr]]) =>
-            val dictPairs = kvPairs map { (kvPair) => kvPair match {
-              case BeString(key) ~ value => (key, value)
-            }
-            }
-            BeDict(source, dictPairs.toMap)
-          }
+      val rawParser = (source: String) => {
+        "d" ~> (beString ~ beExpr).* <~ "e"
+      } ^^ { (kvPairs: List[BencodingParsers.~[BencodedExpr, BencodedExpr]]) =>
+        val dictPairs = kvPairs map { (kvPair) => kvPair match {
+          case BeString(key) ~ value => (key, value)
+        }
+        }
+        BeDict(source, dictPairs.toMap)
+      }
       parserWrap(rawParser)
     }
 
@@ -103,22 +108,22 @@ object Bencoding {
     }
   }
 
-  def decodeStr(s: String) : Option[BencodedExpr] = {
+  def decodeStr(s: String): Option[BencodedExpr] = {
     val parseResult = BencodingParsers.parseAll(BencodingParsers.beExpr, s)
     if (parseResult.successful) Some(parseResult.get) else None
   }
 
-  def decodeInt(e: BencodedExpr) : Option[Int] = e match {
+  def decodeInt(e: BencodedExpr): Option[Int] = e match {
     case BeInt(_, i) => Some(i)
     case _ => None
   }
 
-  def decodeString(e: BencodedExpr) : Option[String] = e match {
+  def decodeString(e: BencodedExpr): Option[String] = e match {
     case BeString(_, s) => Some(s)
     case _ => None
   }
 
-  def decodeList(e: BencodedExpr) : Option[List[BencodedExpr]] = e match {
+  def decodeList(e: BencodedExpr): Option[List[BencodedExpr]] = e match {
     case BeList(_, l) => Some(l)
     case _ => None
   }
