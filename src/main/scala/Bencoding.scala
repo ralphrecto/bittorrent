@@ -38,7 +38,9 @@ object Bencoding {
      */
     def parserWrap(beParser: (String => Parser[BencodedExpr])): Parser[BencodedExpr] =
       new Parser[BencodedExpr] {
-        override def apply(in: BencodingParsers.Input): BencodingParsers.Parser[BencodedExpr] = beParser(in.source.toString)
+        override def apply(in: BencodingParsers.Input): BencodingParsers.ParseResult[BencodedExpr] = {
+          beParser(in.source.toString).apply(in)
+        }
       }
 
     def beExpr: Parser[BencodedExpr] = beInt | beString | beList | beDict
@@ -71,7 +73,7 @@ object Bencoding {
         "d" ~> (beString ~ beExpr).* <~ "e"
       } ^^ { (kvPairs: List[BencodingParsers.~[BencodedExpr, BencodedExpr]]) =>
         val dictPairs = kvPairs map { (kvPair) => kvPair match {
-          case BeString(key) ~ value => (key, value)
+          case BeString(_, key) ~ value => (key, value)
         }
         }
         BeDict(source, dictPairs.toMap)
@@ -96,7 +98,8 @@ object Bencoding {
   implicit class BencodableList[Elt <: Bencodable](l: List[Elt]) extends Bencodable {
     override def beEncode(): BencodedExpr = {
       val encodedElts = l map (_.beEncode)
-      BeList(encodedElts reduce (_.source + _.source), encodedElts)
+      val encodedStrs = encodedElts map (_.source)
+      BeList(encodedStrs reduce (_ + _), encodedElts)
     }
   }
 
@@ -106,6 +109,16 @@ object Bencoding {
       val eltSources = encodedVals map (pair => pair._1.beEncode.source + pair._2.source)
       BeDict(s"d${eltSources reduce (_ + _)}e", encodedVals)
     }
+  }
+
+  // TODO: why doesn't this generic version work? (i.e. if we remove bencodableOptionConv
+  // we get compilation errors...)
+  implicit def implicitOptionConv[A, B](from: Option[A])(implicit converter: A => B): Option[B] = {
+    from map converter
+  }
+
+  implicit def bencodableOptionConv[A](from: Option[A])(implicit converter: A => Bencodable): Option[Bencodable] = {
+    from map converter
   }
 
   def decodeStr(s: String): Option[BencodedExpr] = {

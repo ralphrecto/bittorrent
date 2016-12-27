@@ -10,6 +10,17 @@ import scala.util.Random
 object Client {
   private final val CLIENT_ID = "RR"
   private final val CLIENT_VERSION = "0001"
+
+  def main(args: Array[String]): Unit = {
+    val client = new Client()
+    val filename = args(0)
+    val torrentSrc = io.Source.fromString(filename)
+    val torrentStr = try torrentSrc.mkString finally torrentSrc.close()
+    torrentStr |> Bencoding.decodeStr flatMap Torrent.beDecode match {
+      case Some(torrent: Torrent) => client.startTorrent(torrent)
+      case None => client.failTorrent(filename)
+    }
+  }
 }
 
 /**
@@ -37,6 +48,7 @@ case class Completed() extends EventParam("completed")
  * @param port where the client is listening for peer connections
  */
 final class ClientState(val torrent: Torrent, val uploaded: Int, val downloaded: Int, val left: Int, val peerId: String, val port: Int)
+
 /**
  * Created by ralphrecto on 12/4/16.
  */
@@ -114,19 +126,10 @@ class Client extends Actor {
     // 2. send request to tracker
     val initRequest = createTrackerRequest(initState, Started())
     http.singleRequest(initRequest).pipeTo(self)
+    ()
   }
 
   def failTorrent(filename: String): Unit = {
     Console.println(s"Oh no! ${filename} is not a valid torrent file.")
-  }
-
-  def main(args: Array[String]): Unit = {
-    val filename = args(0)
-    val torrentSrc = io.Source.fromString(filename)
-    val torrentStr = try torrentSrc.mkString finally torrentSrc.close()
-    torrentStr |> Bencoding.decodeStr flatMap Torrent.beDecode match {
-      case Some(torrent) => startTorrent(torrent)
-      case None => failTorrent(filename)
-    }
   }
 }

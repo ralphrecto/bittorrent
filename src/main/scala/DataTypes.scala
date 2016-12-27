@@ -2,11 +2,12 @@
  * for documentation of these types. */
 
 import akka.util.ByteString
-import _root_.Bencoding._
+import Bencoding._
+import Bencoding.BencodableString
 import Util._
 
 object DataTypes {
-  def addIfPresent[T <: Bencodable](kv: (String, Option[T]))(m: Map[String, Bencodable]) = kv match {
+  def addIfPresent(kv: (String, Option[Bencodable]))(m: Map[String, Bencodable]) = kv match {
     case (key, Some(value)) => m + (key -> value)
     case (_, None) => m
   }
@@ -67,8 +68,8 @@ object DataTypes {
 
     def beEncode() : BencodedExpr = {
       val l:List[(String, Bencodable)] = List(
-        ("name" -> name),
-        ("length" -> length)
+        ("name", name),
+        ("length", length)
       )
 
       addIfPresent("md5Sum" -> md5Sum)(l.toMap).beEncode()
@@ -210,7 +211,7 @@ object DataTypes {
     val createdBy: Option[String],
     val encoding: Option[String]) extends Bencodable {
 
-    def beEncode() : BencodedExpr = {
+    def beEncode() : Bencoding.BencodedExpr = {
       val dict: Map[String, Bencodable] =
         Map[String, Bencodable]() +
           ("info" -> info) +
@@ -218,7 +219,8 @@ object DataTypes {
 
       val finalDict: Map[String, Bencodable] =
         dict |>
-          addIfPresent("announceList" -> announceList) |>
+      // TODO: add this back on...
+//          addIfPresent("announceList" -> alist) |>
           addIfPresent("creationDate" -> creationDate) |>
           addIfPresent("comment" -> comment) |>
           addIfPresent("createdBy" -> createdBy) |>
