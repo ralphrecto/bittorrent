@@ -1,7 +1,7 @@
-import akka.actor.Actor
+import akka.actor.{Props, ActorSystem, Actor}
 import Util._
 import DataTypes._
-import akka.http.scaladsl.Http
+import akka.http.scaladsl.{HttpExt, Http}
 import akka.http.scaladsl.model.Uri.Query
 import akka.http.scaladsl.model._
 import akka.stream.{ActorMaterializerSettings, ActorMaterializer}
@@ -11,15 +11,29 @@ object Client {
   private final val CLIENT_ID = "RR"
   private final val CLIENT_VERSION = "0001"
 
+  abstract class ClientMessage
+
+  case class Setup(torrent: Torrent)
+
+  case class RequestResponse(response: HttpResponse) extends ClientMessage
+
+  def failTorrent(filename: String): Unit = {
+    Console.println(s"${filename} is not a valid torrent file.")
+  }
+
   def main(args: Array[String]): Unit = {
-    val client = new Client()
+    val system = ActorSystem("BittorrentSystem")
+    val client = system.actorOf(Props[Client], "BittorrentClient")
+
     val filename = args(0)
     val torrentSrc = io.Source.fromString(filename)
     val torrentStr = try torrentSrc.mkString finally torrentSrc.close()
     torrentStr |> Bencoding.decodeStr flatMap Torrent.beDecode match {
-      case Some(torrent: Torrent) => client.startTorrent(torrent)
-      case None => client.failTorrent(filename)
+      case Some(torrent: Torrent) => client ! Setup(torrent)
+      case None => failTorrent(filename)
     }
+
+    system.shutdown()
   }
 }
 
@@ -37,8 +51,16 @@ case class Stopped() extends EventParam("stopped")
 
 case class Completed() extends EventParam("completed")
 
+
 /**
- * Utility class for holding all client state for the current torrent
+ * Class for encapsulating actor state
+ */
+sealed abstract class ClientState
+
+case class Unintiated() extends ClientState
+
+/**
+ * State representing an initiated torrent
  *
  * @param torrent metadata about torrent being downloaded
  * @param uploaded # of bytes uploaded
@@ -47,13 +69,14 @@ case class Completed() extends EventParam("completed")
  * @param peerId id for the given client instance
  * @param port where the client is listening for peer connections
  */
-final class ClientState(val torrent: Torrent, val uploaded: Int, val downloaded: Int, val left: Int, val peerId: String, val port: Int)
+case class Initiated(torrent: Torrent, uploaded: Int, downloaded: Int, left: Int, peerId: String, port: Int) extends ClientState
 
 /**
  * Created by ralphrecto on 12/4/16.
  */
-class Client extends Actor {
+class Client() extends Actor {
 
+  import Client._
   import akka.pattern.pipe
   import context.dispatcher
 
@@ -61,10 +84,9 @@ class Client extends Actor {
     ActorMaterializerSettings(context.system)
   )
 
-  private val http = Http(context.system)
+  private val http: HttpExt = Http(context.system)
 
-  private val peerId = genPeerId()
-  private val listeningPort = genPort()
+  private var currentState: ClientState = Unintiated()
 
   // TODO: this has to return a 20 byte string
   // TODO: the random component should probs incorporate pid, timestart, etc.
@@ -78,11 +100,26 @@ class Client extends Actor {
   }
 
   override def receive: Receive = {
-    case HttpResponse(StatusCodes.OK, headers, entity, _) => {
-      Console.print("great success!")
+    // receive the torrent metadata, initialize torrent download
+    case Setup(torrent) => {
+      // 1. setup: initialize state, setup ports
+      // TODO: calc left bytes properly
+      val left = 100
+      val initState: Initiated = Initiated(torrent, 0, 0, left, genPeerId(), genPort())
+      currentState = initState
+
+      // 2. send request to tracker
+      val initRequest = createTrackerRequest(initState, Started())
+      http.singleRequest(initRequest).map(RequestResponse(_)).pipeTo(self)
     }
-    case HttpResponse(_, _, _, _) => {
-      Console.print("not a great success!")
+
+    case RequestResponse(resp) => resp match {
+      case HttpResponse(StatusCodes.OK, headers, entity, _) => {
+        Console.print("great success!")
+      }
+      case HttpResponse(_, _, _, _) => {
+        Console.print("not a great success!")
+      }
     }
   }
 
@@ -91,12 +128,12 @@ class Client extends Actor {
    * @param state client state for the current download
    * @param event value for the event param (see EventParam class)
    */
-  def createTrackerRequest(state: ClientState, event: EventParam): HttpRequest = {
+  def createTrackerRequest(state: Initiated, event: EventParam): HttpRequest = {
     val baseUri = state.torrent.announce
     val params: Map[String, String] = Map[String, String]() +
       ("info_hash" -> (state.torrent.info.beEncode().source |> md5Digest |> urlEncode)) +
-      ("peer_id" -> peerId) +
-      ("port" -> listeningPort.toString) +
+      ("peer_id" -> state.peerId) +
+      ("port" -> state.port.toString) +
       ("uploaded" -> state.uploaded.toString) +
       ("downloaded" -> state.downloaded.toString) +
       ("left" -> state.left.toString) +
@@ -109,27 +146,4 @@ class Client extends Actor {
     )
   }
 
-  /**
-   * This function should encompass the different stages of beginning a torrent
-   * 1. Setup (create setup state, begin listening on a port, etc.)
-   * 2. Send HTTP request to tracker
-   * 3. Begin downloading from peers
-   *
-   * @param torrent metadata regarding the file/s to be downloaded
-   */
-  def startTorrent(torrent: Torrent): Unit = {
-    // 1. setup: initialize state, setup ports
-    // TODO: calc left bytes properly
-    val left = 100
-    val initState = new ClientState(torrent, 0, 0, left, genPeerId(), genPort())
-
-    // 2. send request to tracker
-    val initRequest = createTrackerRequest(initState, Started())
-    http.singleRequest(initRequest).pipeTo(self)
-    ()
-  }
-
-  def failTorrent(filename: String): Unit = {
-    Console.println(s"Oh no! ${filename} is not a valid torrent file.")
-  }
 }
