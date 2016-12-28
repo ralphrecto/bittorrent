@@ -33,7 +33,7 @@ object Client {
       case None => failTorrent(filename)
     }
 
-    system.shutdown()
+    system.terminate()
   }
 }
 
